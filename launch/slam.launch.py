@@ -67,6 +67,12 @@ ARGUMENTS = [
     DeclareLaunchArgument('sync', default_value='true',
                           choices=['true', 'false'],
                           description='Use synchronous SLAM'),
+    DeclareLaunchArgument(
+    'scan_topic',
+    default_value='sensors/lidar3d_0/scan',
+    description='Relative scan topic (without namespace)'
+                        ),
+
 ]
 
 
@@ -81,6 +87,7 @@ def launch_setup(context, *args, **kwargs):
     autostart = LaunchConfiguration('autostart')
     use_lifecycle_manager = LaunchConfiguration('use_lifecycle_manager')
     sync = LaunchConfiguration('sync')
+    scan_topic= LaunchConfiguration('scan_topic')
 
     # Read robot YAML
     config = read_yaml(os.path.join(setup_path.perform(context), 'robot.yaml'))
@@ -101,7 +108,8 @@ def launch_setup(context, *args, **kwargs):
         root_key=namespace,
         param_rewrites={
             'map_name': '/' + namespace + '/map',
-            'scan_topic': '/' + namespace + '/sensors/lidar2d_0/scan',
+            'scan_topic': PathJoinSubstitution(['/',namespace, scan_topic]),
+
         },
         convert_types=True
     )
