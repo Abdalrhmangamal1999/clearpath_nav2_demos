@@ -47,7 +47,7 @@ from launch.substitutions import (
 )
 
 from launch_ros.actions import PushRosNamespace
-
+from nav2_common.launch import RewrittenYaml
 
 ARGUMENTS = [
     DeclareLaunchArgument('use_sim_time', default_value='false',
@@ -55,7 +55,11 @@ ARGUMENTS = [
                           description='Use sim time'),
     DeclareLaunchArgument('setup_path',
                           default_value='/etc/clearpath/',
-                          description='Clearpath setup path')
+                          description='Clearpath setup path'),
+    DeclareLaunchArgument('scan_topic',
+                           default_value='sensors/lidar3d_0/scan',
+                           description='Relative scan topic (without namespace)'
+                        )
 ]
 
 
@@ -67,6 +71,7 @@ def launch_setup(context, *args, **kwargs):
     # Launch Configurations
     use_sim_time = LaunchConfiguration('use_sim_time')
     setup_path = LaunchConfiguration('setup_path')
+    scan_topic= LaunchConfiguration('scan_topic')
     map = LaunchConfiguration('map')  # noqa:A001
 
     # Read robot YAML
@@ -82,7 +87,14 @@ def launch_setup(context, *args, **kwargs):
         'config',
         platform_model,
         'localization.yaml'])
-
+    
+    rewritten_parameters = RewrittenYaml(
+        source_file=file_parameters,
+        root_key='',
+        param_rewrites={
+            'scan_topic': PathJoinSubstitution(['/',namespace, scan_topic])},
+        convert_types=True
+    )
     launch_localization = PathJoinSubstitution(
       [pkg_nav2_bringup, 'launch', 'localization_launch.py'])
 
@@ -95,7 +107,7 @@ def launch_setup(context, *args, **kwargs):
                 ('namespace', namespace),
                 ('map', map),
                 ('use_sim_time', use_sim_time),
-                ('params_file', file_parameters)
+                ('params_file', rewritten_parameters)
               ]
         ),
     ])
