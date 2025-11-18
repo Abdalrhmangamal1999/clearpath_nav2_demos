@@ -47,6 +47,7 @@ from launch.substitutions import (
 )
 
 from launch_ros.actions import PushRosNamespace, SetRemap
+from nav2_common.launch import RewrittenYaml
 
 
 ARGUMENTS = [
@@ -55,9 +56,14 @@ ARGUMENTS = [
                           description='Use sim time'),
     DeclareLaunchArgument('setup_path',
                           default_value='/etc/clearpath/',
-                          description='Clearpath setup path')
+                          description='Clearpath setup path'),
+    DeclareLaunchArgument('scan_topic',
+                           default_value='sensors/lidar3d_0/scan',
+                           description='Relative scan topic (without namespace)' ),
+    DeclareLaunchArgument('odom_topic',
+                           default_value='platform/odom',
+                           description='Relative odom topic (without namespace)'),                            
 ]
-
 
 def launch_setup(context, *args, **kwargs):
     # Packages
@@ -67,7 +73,8 @@ def launch_setup(context, *args, **kwargs):
     # Launch Configurations
     use_sim_time = LaunchConfiguration('use_sim_time')
     setup_path = LaunchConfiguration('setup_path')
-
+    scan_topic = LaunchConfiguration('scan_topic')
+    odom_topic = LaunchConfiguration('odom_topic')   
     # Read robot YAML
     config = read_yaml(os.path.join(setup_path.perform(context), 'robot.yaml'))
     # Parse robot YAML into config
@@ -82,23 +89,44 @@ def launch_setup(context, *args, **kwargs):
         platform_model,
         'nav2.yaml'])
 
+    rewritten_parameters = RewrittenYaml(
+        source_file=file_parameters,
+        root_key='',
+        param_rewrites = {
+            "bt_navigator.ros__parameters.odom_topic": odom_topic,
+            "velocity_smoother.ros__parameters.odom_topic": odom_topic,
+
+            "local_costmap.local_costmap.ros__parameters.voxel_layer.scan.topic": scan_topic,
+            "global_costmap.global_costmap.ros__parameters.obstacle_layer.scan.topic": scan_topic,
+            "collision_monitor.ros__parameters.scan.topic": scan_topic
+        },
+        convert_types=True
+    )
+        
     launch_nav2 = PathJoinSubstitution(
       [pkg_nav2_bringup, 'launch', 'navigation_launch.py'])
 
     nav2 = GroupAction([
-        PushRosNamespace(namespace),
-        SetRemap('/' + namespace + '/global_costmap/sensors/lidar2d_0/scan',
-                 '/' + namespace + '/sensors/lidar2d_0/scan'),
-        SetRemap('/' + namespace + '/local_costmap/sensors/lidar2d_0/scan',
-                 '/' + namespace + '/sensors/lidar2d_0/scan'),
-        SetRemap('/' + namespace + '/odom',
-                 '/' + namespace + '/platform/odom'),
+        PushRosNamespace(namespace),     
+        SetRemap(
+            PathJoinSubstitution(['/', namespace, 'global_costmap', scan_topic]),
+            PathJoinSubstitution(['/', namespace, scan_topic])
+        ),
+        SetRemap(
+            PathJoinSubstitution(['/', namespace, 'local_costmap', scan_topic]),
+            PathJoinSubstitution(['/', namespace, scan_topic])
+        ),
+        SetRemap(
+            PathJoinSubstitution(['/', namespace, 'odom']),
+            PathJoinSubstitution(['/', namespace, odom_topic])
+        ),
+
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(launch_nav2),
             launch_arguments=[
                 ('use_sim_time', use_sim_time),
-                ('params_file', file_parameters),
+                ('params_file', rewritten_parameters),
                 ('use_composition', 'False'),
                 ('namespace', namespace)
               ]
