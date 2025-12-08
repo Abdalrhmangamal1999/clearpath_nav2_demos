@@ -59,7 +59,15 @@ ARGUMENTS = [
     DeclareLaunchArgument('scan_topic',
                            default_value='sensors/lidar3d_0/scan',
                            description='Relative scan topic (without namespace)'
-                        )
+                        ),
+    DeclareLaunchArgument('map',
+                           default_value=PathJoinSubstitution([
+                               get_package_share_directory('clearpath_nav2_demos'),
+                               'maps',
+                               'warehouse.yaml'
+                            ]),
+                           description='Absolute path  for map.yaml'
+                        ),
 ]
 
 
@@ -72,7 +80,7 @@ def launch_setup(context, *args, **kwargs):
     use_sim_time = LaunchConfiguration('use_sim_time')
     setup_path = LaunchConfiguration('setup_path')
     scan_topic= LaunchConfiguration('scan_topic')
-    map = LaunchConfiguration('map')  # noqa:A001
+    map = LaunchConfiguration('map') 
 
     # Read robot YAML
     config = read_yaml(os.path.join(setup_path.perform(context), 'robot.yaml'))
@@ -116,14 +124,6 @@ def launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
-    pkg_clearpath_nav2_demos = get_package_share_directory('clearpath_nav2_demos')
-
-    map_arg = DeclareLaunchArgument(
-        'map',
-        default_value=PathJoinSubstitution([pkg_clearpath_nav2_demos, 'maps', 'warehouse.yaml']),
-        description='Full path to map yaml file to load')
-
     ld = LaunchDescription(ARGUMENTS)
-    ld.add_action(map_arg)
     ld.add_action(OpaqueFunction(function=launch_setup))
     return ld
