@@ -25,6 +25,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+import os 
 from ament_index_python.packages import get_package_share_directory
 
 from clearpath_config.common.utils.yaml import read_yaml
@@ -33,6 +34,8 @@ from clearpath_config.clearpath_config import ClearpathConfig
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    GroupAction,
+    IncludeLaunchDescription,
     OpaqueFunction
 )
 
@@ -40,7 +43,10 @@ from launch.substitutions import (
     LaunchConfiguration,
     PathJoinSubstitution
 )
-
+from launch_ros.actions import PushRosNamespace, SetRemap
+from nav2_common.launch import RewrittenYaml
+from launch.conditions import IfCondition, UnlessCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
 from nav2_common.launch import RewrittenYaml
@@ -52,20 +58,37 @@ ARGUMENTS = [
                           description='Use sim time'),
     DeclareLaunchArgument('setup_path',
                           default_value='/etc/clearpath/',
-                          description='Clearpath setup path')
+                          description='Clearpath setup path'),
+    DeclareLaunchArgument('autostart', default_value='true',
+                          choices=['true', 'false'],
+                          description='Automatically startup the slamtoolbox. Ignored when use_lifecycle_manager is true.'),  # noqa: E501
+    DeclareLaunchArgument('use_lifecycle_manager', default_value='false',
+                          choices=['true', 'false'],
+                          description='Enable bond connection during node activation'),
+    DeclareLaunchArgument('sync', default_value='true',
+                          choices=['true', 'false'],
+                          description='Use synchronous SLAM'),
+    DeclareLaunchArgument('scan_topic',
+                          default_value='sensors/lidar3d_0/scan',
+                          description='Relative scan topic (without namespace)')
 ]
 
 
 def launch_setup(context, *args, **kwargs):
     # Packages
     pkg_clearpath_nav2_demos = get_package_share_directory('clearpath_nav2_demos')
+    pkg_slam_toolbox = get_package_share_directory('slam_toolbox')
 
     # Launch Configurations
     use_sim_time = LaunchConfiguration('use_sim_time')
     setup_path = LaunchConfiguration('setup_path')
+    autostart = LaunchConfiguration('autostart')
+    use_lifecycle_manager = LaunchConfiguration('use_lifecycle_manager')
+    sync = LaunchConfiguration('sync')
+    scan_topic= LaunchConfiguration('scan_topic')
 
     # Read robot YAML
-    config = read_yaml(setup_path.perform(context) + 'robot.yaml')
+    config = read_yaml(os.path.join(setup_path.perform(context), 'robot.yaml'))
     # Parse robot YAML into config
     clearpath_config = ClearpathConfig(config)
 
@@ -81,31 +104,50 @@ def launch_setup(context, *args, **kwargs):
     rewritten_parameters = RewrittenYaml(
         source_file=file_parameters,
         root_key=namespace,
-        param_rewrites={},
+        param_rewrites={
+            'map_name': '/' + namespace + '/map',
+            'scan_topic': PathJoinSubstitution(['/',namespace, scan_topic]),
+
+        },
         convert_types=True
     )
 
-    slam = Node(
-        package='slam_toolbox',
-        executable='async_slam_toolbox_node',
-        name='slam_toolbox',
-        namespace=namespace,
-        output='screen',
-        parameters=[
-          rewritten_parameters,
-          {'use_sim_time': use_sim_time}
-        ],
-        remappings=[
-          ('/tf', 'tf'),
-          ('/tf_static', 'tf_static'),
-          ('/scan', 'sensors/lidar2d_0/scan'),
-          ('/map', 'map'),
-          ('/map_metadata', 'map_metadata'),
-        ]
-    )
+    launch_slam_sync = PathJoinSubstitution(
+        [pkg_slam_toolbox, 'launch', 'online_sync_launch.py'])
+
+    launch_slam_async = PathJoinSubstitution(
+        [pkg_slam_toolbox, 'launch', 'online_async_launch.py'])
+
+    slam = GroupAction([
+        PushRosNamespace(namespace),
+
+        SetRemap('/tf', '/' + namespace + '/tf'),
+        SetRemap('/tf_static', '/' + namespace + '/tf_static'),
+
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(launch_slam_sync),
+            launch_arguments=[
+                ('use_sim_time', use_sim_time),
+                ('autostart', autostart),
+                ('use_lifecycle_manager', use_lifecycle_manager),
+                ('slam_params_file', rewritten_parameters)
+            ],
+            condition=IfCondition(sync)
+        ),
+
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(launch_slam_async),
+            launch_arguments=[
+                ('use_sim_time', use_sim_time),
+                ('autostart', autostart),
+                ('use_lifecycle_manager', use_lifecycle_manager),
+                ('slam_params_file', rewritten_parameters)
+            ],
+            condition=UnlessCondition(sync)
+        )
+    ])
 
     return [slam]
-
 
 def generate_launch_description():
     ld = LaunchDescription(ARGUMENTS)
