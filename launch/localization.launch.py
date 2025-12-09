@@ -25,6 +25,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+import os 
 from ament_index_python.packages import get_package_share_directory
 
 from clearpath_config.common.utils.yaml import read_yaml
@@ -45,6 +46,7 @@ from launch.substitutions import (
 )
 
 from launch_ros.actions import PushRosNamespace
+from nav2_common.launch import RewrittenYaml
 
 
 ARGUMENTS = [
@@ -53,7 +55,19 @@ ARGUMENTS = [
                           description='Use sim time'),
     DeclareLaunchArgument('setup_path',
                           default_value='/etc/clearpath/',
-                          description='Clearpath setup path')
+                          description='Clearpath setup path'),
+    DeclareLaunchArgument('scan_topic',
+                           default_value='sensors/lidar3d_0/scan',
+                           description='Relative scan topic (without namespace)'
+                        ),
+    DeclareLaunchArgument('map',
+                           default_value=PathJoinSubstitution([
+                               get_package_share_directory('clearpath_nav2_demos'),
+                               'maps',
+                               'warehouse.yaml'
+                            ]),
+                           description='Absolute path  for map.yaml'
+                        ),
 ]
 
 
@@ -65,10 +79,11 @@ def launch_setup(context, *args, **kwargs):
     # Launch Configurations
     use_sim_time = LaunchConfiguration('use_sim_time')
     setup_path = LaunchConfiguration('setup_path')
+    scan_topic= LaunchConfiguration('scan_topic')
     map = LaunchConfiguration('map')
 
     # Read robot YAML
-    config = read_yaml(setup_path.perform(context) + 'robot.yaml')
+    config = read_yaml(os.path.join(setup_path.perform(context), 'robot.yaml'))
     # Parse robot YAML into config
     clearpath_config = ClearpathConfig(config)
 
@@ -80,7 +95,14 @@ def launch_setup(context, *args, **kwargs):
         'config',
         platform_model,
         'localization.yaml'])
-
+    
+    rewritten_parameters = RewrittenYaml(
+        source_file=file_parameters,
+        root_key='',
+        param_rewrites={
+            'scan_topic': PathJoinSubstitution(['/',namespace, scan_topic])},
+        convert_types=True
+    )
     launch_localization = PathJoinSubstitution(
       [pkg_nav2_bringup, 'launch', 'localization_launch.py'])
 
@@ -93,7 +115,7 @@ def launch_setup(context, *args, **kwargs):
                 ('namespace', namespace),
                 ('map', map),
                 ('use_sim_time', use_sim_time),
-                ('params_file', file_parameters)
+                ('params_file', rewritten_parameters)
               ]
         ),
     ])
@@ -102,14 +124,6 @@ def launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
-    pkg_clearpath_nav2_demos = get_package_share_directory('clearpath_nav2_demos')
-
-    map_arg = DeclareLaunchArgument(
-        'map',
-        default_value=PathJoinSubstitution([pkg_clearpath_nav2_demos, 'maps', 'warehouse.yaml']),
-        description='Full path to map yaml file to load')
-
     ld = LaunchDescription(ARGUMENTS)
-    ld.add_action(map_arg)
     ld.add_action(OpaqueFunction(function=launch_setup))
     return ld
